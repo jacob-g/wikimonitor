@@ -1,7 +1,5 @@
 <?php
-//define('WIKI_API_URL', 'http://wiki.scratch.mit.edu/w/api.php');
 define('WIKI_API_URL', 'https://en.scratch-wiki.info/w/api.php');
-//define('SERVER_LOGIN', 'apiadmin:apipasswd');
 
 //include necessary libaries
 include 'includes/wikifunctions.php';
