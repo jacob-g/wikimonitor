@@ -15,7 +15,12 @@ $already_notified = array();
 $logincount = 0;
 
 $lastreloadedconfig = time();
-loadconfig();
+$force = false;
+if (!empty($argv) && in_array('config', $argv)) {
+	echo 'Reloading config' . "\n";
+	$force = true;
+}
+loadconfig($force);
 
 $clear_sandbox_time = 0; //start out with no clearing sandbox
 while (true) {
@@ -138,28 +143,27 @@ while (true) {
 							}
 						}
 						if (!$ok) {
-							$newsectionafter = true;
-							$lastheading = false;
-							$after = true;
-							$before = false;
-							for ($i = sizeof($diff) - 1; $i >= 0; $i--) {
+							$newsectionafter = true; //stores whether or not there is a new section after the addition (if it's the end of the page and we don't come across any headings, we will by default act as if there is a new section, so the message appears at the end of a section)
+							$lastheading = false; //stores whether or not this is the last heading
+							$after = true; //stores whether we are after the addition
+							for ($i = sizeof($diff) - 1; $i >= 0; $i--) { //cycle through the lines in reverse order
 								$line = $diff[$i];
-								if ($line['type'] == 'context') {
-									if ($after) {
-										if (strpos(trim($line['content']), '==') === 0) {
-											$newsectionafter = true;
-											$lastheading = $line['content'];
-										} else if (trim($line['content']) != '') {
-											$newsectionafter = false;
+								if ($line['type'] == 'context') { //if this is neither an addition nor removal, examine it
+									if ($after) { //if we haven't reached any additions yet, see what we have
+										if (strpos(trim($line['content']), '==') === 0) { //if it's a header, we have a new section after the addition (this will be overwritten if text that isn't a header is come across)
+											$newsectionafter = true; //we have a new section right after the message
+											$lastheading = $line['content']; //save what the last heading is
+										} else if (trim($line['content']) != '') { //if there is text that isn't a heading, we have anothre message (this will be overwritten if a header is come across)
+											$newsectionafter = false; //we have something that isn't a new section after the message
 										}
-									} else {
-										$before = true;
 									}
 								} else {
-									$after = false;
+									if (preg_match('%^<ins class=".*?">.*?</ins>$%', $line['content'])) { //if the whole line is an addition, then we're now in the message
+										$after = false;
+									}
 								}
 							}
-							if (!$newsectionafter || $lastheading === $first_heading) {
+							if (!$newsectionafter || $lastheading === $first_heading) { //if this isn't at the end of the section or the heading after the message is the first heading on the page, a signature isn't necessary
 								$ok = true;
 							}
 						}

@@ -42,7 +42,7 @@ function notify_user($user, $type, $info) {
 			$message = str_replace('($revid)', $info['revid'], str_replace('($page)', $info['page'], $UNSIGNED_MESSAGE_BODY));
 			echo date($dateformat, time()) . ' ' . $user . ' did not sign post (' . $info['page'] . ' revision ' . $info['revid'] . '), notifying...' . "\n";
 			$subject = $UNSIGNED_MESSAGE_SUBJECT;
-			$summary = 'Unsigned post: Revision ' . $info['revid'] . ' of [[' . $info['page'] . ']]';
+			$summary = 'Unsigned post: [[Special:Diff/' . $info['revid'] . '|Revision ' . $info['revid'] . ']] of [[' . $info['page'] . ']]';
 			$datasignature = 'nosign-' . $info['revid'];
 			break;
 		case 'excessive':
@@ -95,8 +95,7 @@ function notify_user($user, $type, $info) {
 		$edittoken = (string)$tokenxml->query->pages->page->attributes()->edittoken;
 
 		$return = curl_post(WIKI_API_URL . '', 'action=edit&title=User_talk:' . $user . '&section=new&sectiontitle=' . $subject . '&summary=' . rawurlencode($summary . ' (' . $datasignature . ')') . '&text=' . rawurlencode($message) . '&tags=wikimonitor-notification&format=xml&bot=true&token=' . rawurlencode($edittoken)); //submit the edit
-		$xml = new SimpleXMLElement($return);
-		$revid = (int)$xml->edit->attributes()->newrevid;
+		print_r(new SimpleXMLElement($return));
 	}
 }
 
@@ -107,54 +106,57 @@ function submit_edit($title, $contents, $summary, $minor = false) {
 	$return = curl_post(WIKI_API_URL . '', 'action=edit&title=' . rawurlencode($title) . '&summary=' . $summary . '&text=' . rawurlencode($contents) . '&format=xml&bot=true' . ($minor = true ? '&minor=true' : '') . '&token=' . rawurlencode($edittoken)); //submit the edit
 }
 
-function loadconfig() { //load online configuration
+function loadconfig($force = false) { //load online configuration
 	global $category_templates;
 	global $MESSAGE_PREFIX, $MESSAGE_SUFFIX, $SANDBOX_TIMEOUT, $DEFAULT_SANDBOX_TEXT, $UNSIGNED_MESSAGE_SUBJECT, $UNSIGNED_MESSAGE_BODY, $NOCAT_MESSAGE_SUBJECT, $NOCAT_MESSAGE_BODY, $RAPID_MESSAGE_SUBJECT, $RAPID_MESSAGE_BODY, $TOO_MANY_EDITS_COUNT, $TOO_MANY_EDITS_TIME, $NOBOTS_OVERRIDE_MESSAGE;
 	echo 'Loading config - this could take a while.' . "\n";
-
-	preg_match('%<code><nowiki>\{(.*?)\}</nowiki></code>%', get_page_contents(CONFIG_LOCATION . '/CategoryTemplates'), $matches); //templates that contain a category
+	preg_match('%<code><nowiki>\{(.*?)\}</nowiki></code>%', loadconfigoption('CategoryTemplates', $force), $matches); //templates that contain a category
 	$category_templates = explode(',', $matches[1]);
 	echo 'Loaded config: category templates' . "\n";
-
-	preg_match('%<code><nowiki>\{(.*?)\}</nowiki></code>%ms', get_page_contents(CONFIG_LOCATION . '/MessagePrefix'), $matches); //prefix to add to messages
+	preg_match('%<code><nowiki>\{(.*?)\}</nowiki></code>%ms', loadconfigoption('MessagePrefix', $force), $matches); //prefix to add to messages
 	$MESSAGE_PREFIX = $matches[1];
 	echo 'Loaded config: message prefix' . "\n";
-
-	preg_match('%<code><nowiki>\{(.*?)\}</nowiki></code>%ms', get_page_contents(CONFIG_LOCATION . '/MessageSuffix'), $matches); //suffix to add to messages
+	preg_match('%<code><nowiki>\{(.*?)\}</nowiki></code>%ms', loadconfigoption('MessageSuffix', $force), $matches); //suffix to add to messages
 	$MESSAGE_SUFFIX = $matches[1];
 	echo 'Loaded config: message suffix' . "\n";
-
-	preg_match('%<code><nowiki>\{(.*?)\}</nowiki></code>%', get_page_contents(CONFIG_LOCATION . '/SandboxTimeout'), $matches); //time to wait before clearing sandbox
+	preg_match('%<code><nowiki>\{(.*?)\}</nowiki></code>%', loadconfigoption('SandboxTimeout', $force), $matches); //time to wait before clearing sandbox
 	$SANDBOX_TIMEOUT = $matches[1];
 	
-	preg_match('%<code><pre><nowiki>(.*?)</nowiki></pre></code>%ms', get_page_contents(CONFIG_LOCATION . '/DefaultSandbox'), $matches); //default sandbox text
+	preg_match('%<code><pre><nowiki>(.*?)</nowiki></pre></code>%ms', loadconfigoption('DefaultSandbox', $force), $matches); //default sandbox text
 	$DEFAULT_SANDBOX_TEXT = $matches[1];
 	echo 'Loaded config: default sandbox text' . "\n";
-
-	preg_match('%<pre>\{Subj:(.*?)\}.*?\{Msg:(.*?)\}</pre>%ms', get_page_contents(CONFIG_LOCATION . '/UnsignedMessage'), $matches); //unsigned post message
+	preg_match('%<pre>\{Subj:(.*?)\}.*?\{Msg:(.*?)\}</pre>%ms', loadconfigoption('UnsignedMessage', $force), $matches); //unsigned post message
 	$UNSIGNED_MESSAGE_SUBJECT = $matches[1];
 	$UNSIGNED_MESSAGE_BODY = $matches[2];
 	echo 'Loaded config: unsigned messages' . "\n";
-
-	preg_match('%<code><nowiki>\{Subj:(.*?)\}.*?\{Msg:(.*?)\}</nowiki></code>%msi', get_page_contents(CONFIG_LOCATION . '/NoCategoryMessage'), $matches); //no category message
+	preg_match('%<code><nowiki>\{Subj:(.*?)\}.*?\{Msg:(.*?)\}</nowiki></code>%msi', loadconfigoption('NoCategoryMessage', $force), $matches); //no category message
 	$NOCAT_MESSAGE_SUBJECT = $matches[1];
 	$NOCAT_MESSAGE_BODY = $matches[2];
 	echo 'Loaded config: no category messages' . "\n";
-
-	preg_match('%<code><nowiki>\{Subj:(.*?)\}.*?\{Msg:(.*?)\}</nowiki></code>%ms', get_page_contents(CONFIG_LOCATION . '/RapidEditMessage'), $matches); //rapid editing message
+	preg_match('%<code><nowiki>\{Subj:(.*?)\}.*?\{Msg:(.*?)\}</nowiki></code>%ms', loadconfigoption('RapidEditMessage', $force), $matches); //rapid editing message
 	$RAPID_MESSAGE_SUBJECT = $matches[1];
 	$RAPID_MESSAGE_BODY = $matches[2];
 	echo 'Loaded config: quick editing messages' . "\n";
-
-	preg_match('%<code><nowiki>\{(.*?)\}</nowiki></code>%', get_page_contents(CONFIG_LOCATION . '/TooManyEdits'), $matches); //too many edits
+	preg_match('%<code><nowiki>\{(.*?)\}</nowiki></code>%', loadconfigoption('TooManyEdits', $force), $matches); //too many edits
 	$parts = explode(',', $matches[1]);
 	$TOO_MANY_EDITS_COUNT = $parts[0];
 	$TOO_MANY_EDITS_TIME = $parts[1];
 	echo 'Loaded config: definition of too many edits' . "\n";
 		
-	preg_match('%<code><nowiki>\{(.*?)\}</nowiki></code>%ms', get_page_contents(CONFIG_LOCATION . '/NoBotsOverrideMessage'), $matches); //default sandbox text
+	preg_match('%<code><nowiki>\{(.*?)\}</nowiki></code>%ms', loadconfigoption('NoBotsOverrideMessage', $force), $matches); //default sandbox text
 	$NOBOTS_OVERRIDE_MESSAGE = $matches[1];
 	echo 'Loaded config: NoBots override message' . "\n";
+}
+
+function loadconfigoption($option, $force) {
+	if (file_exists('conf/wikiconfig/' . $option) && !$force) {
+		$contents = file_get_contents('conf/wikiconfig/' . $option);
+	} else {
+		echo ' -> Downloading new version from Wiki' . "\n";
+		$contents = get_page_contents(CONFIG_LOCATION . '/' . $option);
+		file_put_contents('conf/wikiconfig/' . $option, $contents);
+	}
+	return $contents;
 }
 
 function login($wikiusername, $wikipassword) {
@@ -186,7 +188,6 @@ function login($wikiusername, $wikipassword) {
 function checkshutoff() {
 	$shutoffpage = get_page_contents(SHUTOFF_PAGE); //check for automatic shutoff
 	if (!strstr($shutoffpage, '<div id="botenabled" style="font-weight:bold">true</div>')) {
-		preg_match('%\(This page was last edited by (.*?)\)%', curl_get('http://wiki.scratch.mit.edu/wiki/User:WikiMonitor/Disable'), $matches);
-		echo 'This bot has been disabled by ' . $matches[1] . "\n"; die;
+		echo ' >>> THIS BOT HAS BEEN DISABLED! <<< '; die;
 	}
 }
