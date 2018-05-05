@@ -1,6 +1,6 @@
 <?php
 function get_page_contents($title) {
-	//TODO: conver this to JSON
+	//TODO: convert this to JSON
 	$data = '';
 	while ($data == '') {
 		$data = curl_get(WIKI_API_URL . '?action=query&titles=' . rawurlencode($title) . '&prop=revisions&rvprop=content&format=xml&salt=' . md5(time()));
@@ -175,7 +175,7 @@ function login($wikiusername, $wikipassword) {
 	}
 	$logincount++;
 	if ($logincount == 1) {
-		echo 'Login success!' . "\n";
+		echo '[INFO] Login success!' . "\n";
 	}
 }
 
@@ -411,55 +411,64 @@ function checkUnsignedDiff($oldtext, $newtext) {
 //check for missing categories
 function checkMissingCategories($rc_json) {
 	global $category_templates;
+	static $already_seen_edits;
+	if (!isset($already_seen_edits)) {
+		$already_seen_edits = array();
+	}
+	
 	foreach ($rc_json as $edit) {
 		$type = (string)$edit->type;
-		$namespace = (int)$edit->ns;
-		$title = (string)$edit->title;
-		$oldrevid = (string)$edit->old_revid;
-		if ($type == 'log') {
-			$logtype = (string)$edit->logtype;
-		}
-		//it's either an uploaded file or a new non-user page
-		if (($type == 'new' && strpos($title, 'User') !== 0 && !stristr($title, 'talk:')) || ($type == 'log' && $logtype == 'upload' && $oldrevid == 0)) {
-			$timestamp = strtotime((string)$edit->timestamp);
-			
-			$user = (string)$edit->user;
-			//check for category
-			$has_category = checkForCategory($title, $category_templates);
-			if (!$has_category && $timestamp > time() - 180) {
-				//give the uploader three minutes to categorize
-				echo '[INFO] Sleeping ' . (180 - (time() - $timestamp)) . ' seconds to wait for ' . $user . ' to add category on ' . $title . "\n";
-				sleep(180 - (time() - $timestamp));
+		$id = (int)$edit->rcid;
+		if (!in_array($id, $already_seen_edits)) {
+			$namespace = (int)$edit->ns;
+			$title = (string)$edit->title;
+			$oldrevid = (string)$edit->old_revid;
+			if ($type == 'log') {
+				$logtype = (string)$edit->logtype;
 			}
-			
-			//see if the file has been moved and follow it
-			$new_rc = apiQuery(array(
-				'action' => 'query',
-				'list' => 'recentchanges',
-				'rcprop' => 'title|loginfo',
-				'rclimit' => 150,
-				'rcdir' => 'newer',
-				'rcstart' => $timestamp
-			))->query->recentchanges;
-			foreach ($new_rc as $new_edit) {
-				$new_type = (string)$new_edit->type;
-				if ($new_type == 'log') {
-					$new_logtype = (string)$new_edit->logaction;
-					$old_title = (string)$new_edit->title;
-					if ($new_logtype == 'move' && $old_title == $title) {
-						$title = (string)$new_edit->logparams->target_title; //we moved the page, so follow the move
+			//it's either an uploaded file or a new non-user page
+			if (($type == 'new' && strpos($title, 'User') !== 0 && !stristr($title, 'talk:')) || ($type == 'log' && $logtype == 'upload' && $oldrevid == 0)) {
+				$timestamp = strtotime((string)$edit->timestamp);
+				
+				$user = (string)$edit->user;
+				//check for category
+				$has_category = checkForCategory($title, $category_templates);
+				if (!$has_category && $timestamp > time() - 180) {
+					//give the uploader three minutes to categorize
+					echo '[INFO] Sleeping ' . (180 - (time() - $timestamp)) . ' seconds to wait for ' . $user . ' to add category on ' . $title . "\n";
+					sleep(180 - (time() - $timestamp));
+				}
+				
+				//see if the file has been moved and follow it
+				$new_rc = apiQuery(array(
+					'action' => 'query',
+					'list' => 'recentchanges',
+					'rcprop' => 'title|loginfo',
+					'rclimit' => 150,
+					'rcdir' => 'newer',
+					'rcstart' => $timestamp
+				))->query->recentchanges;
+				foreach ($new_rc as $new_edit) {
+					$new_type = (string)$new_edit->type;
+					if ($new_type == 'log') {
+						$new_logtype = (string)$new_edit->logaction;
+						$old_title = (string)$new_edit->title;
+						if ($new_logtype == 'move' && $old_title == $title) {
+							$title = (string)$new_edit->logparams->target_title; //we moved the page, so follow the move
+						}
 					}
 				}
-			}
-			
-			$has_category = $has_category || checkForCategory($title, $category_templates);
-			if (!$has_category) {
-				echo '[NOTIF] [UNCAT] ' . $user . ' did not include category on page ' . $title . "\n";
-				if (strpos($title, 'File:') === 0 || strpos($title, 'Category:') === 0) {
-					$title = ':' . $title;
+				
+				$has_category = $has_category || checkForCategory($title, $category_templates);
+				if (!$has_category) {
+					echo '[NOTIF] [UNCAT] ' . $user . ' did not include category on page ' . $title . "\n";
+					if (strpos($title, 'File:') === 0 || strpos($title, 'Category:') === 0) {
+						$title = ':' . $title;
+					}
+					notify_user($user, 'uncat', array('page' => $title));
 				}
-				notify_user($user, 'uncat', array('page' => $title));
 			}
+			$already_seen_edits[] = $id;
 		}
 	}
 }
@@ -477,5 +486,31 @@ function checkForCategory($title, $category_templates) {
 	}
 }
 
-function checkSandbox($rc_json) {
+function checkSandbox($rc_json, $SANDBOX_TIMEOUT, $DEFAULT_SANDBOX_TEXT) {
+	static $timetoclearsandbox, $already_seen_edits;
+	$dateformat = 'd M Y H:i:s';
+	if (!isset($already_seen_edits)) {
+		$already_seen_edits = array();
+	}
+	foreach ($rc_json as $edit) {
+		$title = (string)$edit->title;
+		$id = (int)$edit->rcid;
+		if (!in_array($id, $already_seen_edits)) {
+			$timestamp = strtotime((string)$edit->timestamp);
+			if ($title == 'Scratch Wiki:Sandbox' && get_page_contents('Scratch Wiki:Sandbox') != $DEFAULT_SANDBOX_TEXT) {
+				//since the RC are in reverse order, we need to make sure we only update the sandbox clear time if it's later
+				$newtimetoclearsandbox = $timestamp + $SANDBOX_TIMEOUT * 60;
+				if ($newtimetoclearsandbox > $timetoclearsandbox) {
+					$timetoclearsandbox = $newtimetoclearsandbox;
+					echo '[INFO] Scheduling sandbox clearing at ' . gmdate($dateformat, $timetoclearsandbox) . ' (UTC)' . "\n";
+				}
+			}
+			$already_seen_edits[] = $id;
+		}
+	}
+	if (isset($timetoclearsandbox) && $timetoclearsandbox <= time() && get_page_contents('Scratch Wiki:Sandbox') != $DEFAULT_SANDBOX_TEXT) {
+		unset($timetoclearsandbox);
+		echo '[EDIT] Clearing sandbox' . "\n";
+		submit_edit('Scratch Wiki:Sandbox', $DEFAULT_SANDBOX_TEXT, 'Automatically clearing sandbox', true);
+	}
 }

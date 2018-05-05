@@ -42,7 +42,7 @@ while (true) {
 		checkMissingCategories($rc_json);
 		
 		//check for whether or not the sandbox needs to be cleared
-		checkSandbox($rc_json);
+		checkSandbox($rc_json, $SANDBOX_TIMEOUT, $DEFAULT_SANDBOX_TEXT);
 		
 		sleep(90);
 	}
