@@ -1,5 +1,6 @@
 <?php
 function get_page_contents($title) {
+	//TODO: conver this to JSON
 	$data = '';
 	while ($data == '') {
 		$data = curl_get(WIKI_API_URL . '?action=query&titles=' . rawurlencode($title) . '&prop=revisions&rvprop=content&format=xml&salt=' . md5(time()));
@@ -10,6 +11,7 @@ function get_page_contents($title) {
 }
 
 function notify_user($user, $type, $info) {
+	//TODO: convert all API calls in here to JSON
 	global $wikiusername;
 	global $MESSAGE_PREFIX, $MESSAGE_SUFFIX, $SANDBOX_TIMEOUT, $DEFAULT_SANDBOX_TEXT, $UNSIGNED_MESSAGE_SUBJECT, $UNSIGNED_MESSAGE_BODY, $NOCAT_MESSAGE_SUBJECT, $NOCAT_MESSAGE_BODY, $RAPID_MESSAGE_SUBJECT, $RAPID_MESSAGE_BODY, $TOO_MANY_EDITS_COUNT, $TOO_MANY_EDITS_TIME, $NOBOTS_OVERRIDE_MESSAGE;
 	//function to notify user
@@ -40,25 +42,18 @@ function notify_user($user, $type, $info) {
 	switch ($type) { //generate message
 		case 'sign':
 			$message = str_replace('($revid)', $info['revid'], str_replace('($page)', $info['page'], $UNSIGNED_MESSAGE_BODY));
-			echo date($dateformat, time()) . ' ' . $user . ' did not sign post (' . $info['page'] . ' revision ' . $info['revid'] . '), notifying...' . "\n";
 			$subject = $UNSIGNED_MESSAGE_SUBJECT;
 			$summary = 'Unsigned post: [[Special:Diff/' . $info['revid'] . '|Revision ' . $info['revid'] . ']] of [[' . $info['page'] . ']]';
 			$datasignature = 'nosign-' . $info['revid'];
 			break;
 		case 'excessive':
 			$message = str_replace('($count)', $info['count'], str_replace('($page)', $info['page'], $RAPID_MESSAGE_BODY));
-			echo date($dateformat, time()) . ' Too many edits (' . $info['count'] . ') from ' . $user . ' on page ' . $info['page'] . ', notifying...' . "\n";
-			if (stristr($info['page'], 'talk')) {
-				echo 'Ignoring talk pages, skipping...' . "\n";
-				return;
-			}
 			$subject = $RAPID_MESSAGE_SUBJECT;
 			$summary = 'Excessive editing on page: [[' . $info['page'] . ']]';
 			$datasignature = 'rapid-' . $info['page'] . floor(time() / (60 * 60 * 24)) . '|' . 'rapid-' . $info['page'] . (floor(time() / (60 * 60 * 24)) + 1);
 			break;
 		case 'uncat':
 			$message = str_replace('($page)', $info['page'], $NOCAT_MESSAGE_BODY);
-			echo date($dateformat, time()) . ' Uncategorized page: ' . $info['page'] . ' by ' . $user . ', notifying...' . "\n";
 			$summary = 'No category on new page: [[' . $info['page'] . ']]';
 			$subject = $NOCAT_MESSAGE_SUBJECT;
 			$datasignature = 'uncat-' . $info['page'];
@@ -95,7 +90,6 @@ function notify_user($user, $type, $info) {
 		$edittoken = (string)$tokenxml->query->pages->page->attributes()->edittoken;
 
 		$return = curl_post(WIKI_API_URL . '', 'action=edit&title=User_talk:' . $user . '&section=new&sectiontitle=' . $subject . '&summary=' . rawurlencode($summary . ' (' . $datasignature . ')') . '&text=' . rawurlencode($message) . '&tags=wikimonitor-notification&format=xml&bot=true&token=' . rawurlencode($edittoken)); //submit the edit
-		print_r(new SimpleXMLElement($return));
 	}
 }
 
@@ -189,5 +183,203 @@ function checkshutoff() {
 	$shutoffpage = get_page_contents(SHUTOFF_PAGE); //check for automatic shutoff
 	if (!strstr($shutoffpage, '<div id="botenabled" style="font-weight:bold">true</div>')) {
 		echo ' >>> THIS BOT HAS BEEN DISABLED! <<< '; die;
+	}
+}
+
+function apiQuery($params, $method = 'get', $array = false) {
+	$params['format'] = 'json';
+	if ($method == 'get') {
+		$result = curl_get(WIKI_API_URL . '?' . http_build_query($params), true);
+	} else if ($method == 'post') {
+		$result = curl_post(WIKI_API_URL, http_build_query($params), true);
+	}
+	return json_decode($result, $array);
+}
+
+function getRecentChanges() {
+	return apiQuery(array(
+		'action' => 'query',
+		'list' => 'recentchanges',
+		'rcprop' => 'title|ids|sizes|flags|user|timestamp',
+		'rclimit' => 150
+	))->query->recentchanges;
+}
+
+//check for excessive edits
+function checkEditCounts($rc_json, $limit, $period) {
+	static $already_notified;
+	$counts = array();
+	$over_limit_counts = array();
+	//cycle through the RC
+	foreach ($rc_json as $edit) {
+		$timestamp = strtotime((string)$edit->timestamp);
+		if ($timestamp >= time() - $period * 60) {
+			$type = (string)$edit->type;
+			if ($type == 'edit') {
+				$title = (string)$edit->title;
+				if (!stristr($title, 'talk:')) {
+					//we have a non-talk edit, so add that to the tally of the number of edits made by this user in this time
+					$user = (string)$edit->user;
+					if (isset($counts[$title][$user])) {
+						$counts[$title][$user]++;
+					} else {
+						$counts[$title][$user] = 1;
+					}
+					//if we have too many, mark it as being over the limit
+					if ($counts[$title][$user] > $limit) {
+						$over_limit_counts[$user][$title] = $counts[$title][$user];
+					}
+				}
+			}
+		}
+	}
+	if (!empty($over_limit_counts)) {
+		if (!isset($already_notified)) {
+			$already_notified = array();
+		}
+		foreach ($over_limit_counts as $user => $pages) {
+			foreach ($pages as $page => $count) {
+				//make sure we don't notify the same user multiple times (wait until two times the period have passed)
+				if (!isset($already_notified[$user][$page]) || $already_notified[$user][$page] < time() - 2 * $period) {
+					echo '[NOTIF] [TOOMANYEDITS] ' . $user . ' made ' . $count . ' edits to ' . $page . ' in the last ' . $period . ' minutes' . "\n";
+					notify_user($user, 'excessive', array('count' => $count, 'page' => $page));
+				} else {
+					$already_notified[$user][$page] = time();
+				}
+			}
+		}
+	}
+}
+
+include realpath(dirname(__FILE__) . '/..') . '/lib/diffengine/lib/Diff.php';
+include realpath(dirname(__FILE__) . '/..') . '/lib/diffengine/lib/Diff/Renderer/Text/Unified.php';
+
+function getDiff($old, $new) {
+	static $renderer;
+	$diff = new Diff(explode("\n", $old), explode("\n", $new), array('ignoreWhitespace' => false, 'ignoreCase' => false));
+	if (!isset($renderer)) {
+		$renderer = new Diff_Renderer_Text_Unified;
+	}
+	return $diff->render($renderer);
+}
+
+
+//check for unsigned posts
+function checkUnsignedPosts($rc_json) {
+	static $already_seen_edits;
+	if (!isset($already_seen_edits)) {
+		$already_seen_edits = array();
+	}
+	foreach ($rc_json as $edit) {
+		$type = (string)$edit->type;
+		$id = (int)$edit->rcid;
+		if ($type == 'edit' && !in_array($id, $already_seen_edits)) {
+			//we haven't seen this edit before, proceed
+			$title = (string)$edit->title;
+			if (stristr($title, 'talk:') && !isset($edit->minor)) {
+				//it's a talk page edit and not marked as minor, see if it's a new message
+				$oldid = (int)$edit->old_revid;
+				$newid = (int)$edit->revid;
+				$pageid = (int)$edit->pageid;
+				$edit_json = apiQuery(array(
+					'action' => 'query',
+					'prop' => 'revisions',
+					'revids' => $oldid . '|' . $newid,
+					'rvprop' => 'content'
+				));
+				if (isset($edit_json->query->pages->$pageid->revisions[0]->texthidden) || isset($edit_json->query->pages->$pageid->revisions[1]->texthidden)) {
+					//one or both revisions was censored
+				} else {
+					//see if the edit contains an unsigned post
+					$oldtext = $edit_json->query->pages->$pageid->revisions[0]->{'*'};
+					$newtext = $edit_json->query->pages->$pageid->revisions[1]->{'*'};
+					if (checkUnsignedDiff($oldtext, $newtext)) {
+						$user = (string)$edit->user;
+						$page = (string)$edit->title;
+						notify_user($user, 'sign', array('revid' => $newid, 'page' => $page));
+					}
+				}
+			}
+		}
+	}
+}
+
+//check a diff for whether not it has an unsigned post
+function checkUnsignedDiff($oldtext, $newtext) {
+	$lines = explode("\n", $oldtext);
+	$diff = getDiff($oldtext, $newtext);
+	$difflines = explode("\n", $diff);
+	$delta = 2;
+	foreach ($difflines as $diffline) {
+		if (preg_match('%@@ (\+|-)(\d+)%', $diffline, $matches)) {
+			$insertpos = $matches[2];
+		} else if (strpos($diffline, '+') === 0 || strpos($diffline, '-') === 0) {
+			array_splice($lines, $insertpos + $delta, 0, array($diffline));
+			$delta++;
+		}
+	}	
+	
+	$lines = array_reverse($lines);
+	
+	$header_direct_after = true; //if there is a header after the inserted block
+	$header_after = true;
+	$header_before = false; //if there is a header before the inserted text
+	$seen_insertion = false; //if we have seen any insertions
+	$seen_sig = false; //if there is a signature on an inserted line
+	$exited_block = false;
+	foreach ($lines as $line) {
+		if (defined('DEBUG')) {
+			echo $line;
+		}
+		if (strpos($line, '+') === 0) {
+			//we are adding something
+			if (defined('DEBUG')) {
+				echo ' [INSERTION]';
+			}
+			$seen_insertion = true;
+			if (stristr($line, '(UTC)')) {
+				$seen_sig = true;
+				break;
+			}
+			//this inserts lines in multiple disconnected places, ignore it
+			if ($exited_block) {
+				$seen_insertion = false;
+				break;
+			}
+		} else if ($seen_insertion) {
+			$exited_block = true;
+		}
+		if (preg_match('%^\+?[^a-zA-Z0-9=]*==[^=].*==[^a-zA-Z0-9=]*$%', $line)) {
+			//this line is a header
+			if (!$seen_insertion) {
+				$header_direct_after = true;
+				$header_after = true;
+				if (defined('DEBUG')) {
+					echo ' [HEADER AFTER]';
+				}
+			} else {
+				$header_before = true;
+				if (defined('DEBUG')) {
+					echo ' [HEADER BEFORE]';
+				}
+			}
+		} else if (!$seen_insertion && trim($line) != '' && strpos($line, '+') !== 0) {
+			$header_direct_after = false;
+		}
+		if (defined('DEBUG')) {
+			echo "\n";
+		}
+	}
+	if (defined('DEBUG')) {
+		echo 'SEEN SIG: ' . ($seen_sig ? 'YES' : 'NO') . "\n";
+		echo 'SEEN INSERTION: ' . ($seen_insertion ? 'YES' : 'NO') . "\n";
+		echo 'HEADER BEFORE: ' . ($header_before ? 'YES' : 'NO') . "\n";
+		echo 'HEADER AFTER: ' . ($header_after ? 'YES' : 'NO') . "\n";
+		echo 'HEADER DIRECT AFTER: ' . ($header_direct_after ? 'YES' : 'NO') . "\n";
+	}
+	if (!$seen_sig && $seen_insertion && (($header_direct_after && $header_after && $header_before) || (!$header_before && !$header_after))) {
+		return true;
+	} else {
+		return false;
 	}
 }

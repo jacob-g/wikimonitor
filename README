@@ -26,3 +26,6 @@ The following configuration files can be edited as necessary:
 conf/nobotsoverride.txt - WM will ignore the {{NoBots}} template for any user on this list
 conf/ignore.txt - WM will unconditially ignore notifications related to any page on the list 
 Place one entry per line in each file, and avoid unnecessary whitespace at the beginning or the end. The list is also case-sensitive and requires underscores, not spaces.
+
+Credits:
+The DIFF algorithm used in this program was taken from http://github.com/chrisboulton/php-diff. Please read the copyright notice in lib/diffengine/lib/Diff.php for the relevant copyright details on those files.
