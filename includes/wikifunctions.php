@@ -281,6 +281,7 @@ function checkUnsignedPosts($rc_json) {
 				$oldid = (int)$edit->old_revid;
 				$newid = (int)$edit->revid;
 				$pageid = (int)$edit->pageid;
+				$timestamp = strtotime((string)$edit->timestamp);
 				$edit_json = apiQuery(array(
 					'action' => 'query',
 					'prop' => 'revisions',
@@ -291,15 +292,38 @@ function checkUnsignedPosts($rc_json) {
 					//one or both revisions was censored
 				} else {
 					//see if the edit contains an unsigned post
+					$user = (string)$edit->user;
 					$oldtext = $edit_json->query->pages->$pageid->revisions[0]->{'*'};
 					$newtext = $edit_json->query->pages->$pageid->revisions[1]->{'*'};
 					if (checkUnsignedDiff($oldtext, $newtext)) {
-						$user = (string)$edit->user;
-						$page = (string)$edit->title;
-						notify_user($user, 'sign', array('revid' => $newid, 'page' => $page));
+						if ($timestamp > time() - 180) {
+							echo '[INFO] Sleeping ' . (180 - (time() - $timestamp)) . ' seconds to wait for ' . $user . ' to sign post on ' . $title . "\n";
+							sleep(180 - (time() - $timestamp));
+						}
+						$contribs = apiQuery(array(
+							'action' => 'query',
+							'list' => 'usercontribs',
+							'ucuser' => $user,
+							'ucprop' => 'ids|title|size',
+							'uclimit' => 20
+						))->query->usercontribs;
+						$fixed = false;
+						foreach ($contribs as $contrib) {
+							$newpageid = (string)$contrib->pageid;
+							$size = (string)$contrib->size;
+							$newrevid = (string)$contrib->revid;
+							if ($newpageid == $pageid && $size > 0 && $newrevid > $newid) {
+								$fixed = true;
+								break;
+							}
+						}
+						if (!$fixed) {
+							notify_user($user, 'sign', array('revid' => $newid, 'page' => $title));
+						}
 					}
 				}
 			}
+			$already_seen_edits[] = $id;
 		}
 	}
 }
