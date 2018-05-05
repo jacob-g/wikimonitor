@@ -30,7 +30,7 @@ function notify_user($user, $type, $info) {
 		if (sizeof($nowikimatches[0]) < sizeof($nobotsmatches[0])) {
 			$nobots_override_list = explode("\n", file_get_contents('conf/nobotsoverride.txt')); //check if user is on nobots override list
 			if (!in_array($user, $nobots_override_list)) {
-				echo $user . '\'s talk page does not allow bots. Skipping...' . "\n";
+				echo ' -> [CANCEL] ' . $user . '\'s talk page does not allow bots' . "\n";
 				return;
 			} else {
 				$overridenobots = true;
@@ -65,7 +65,7 @@ function notify_user($user, $type, $info) {
 	if (isset($historyxml->query->pages->page->revisions->rev)) {
 		foreach ($historyxml->query->pages->page->revisions->rev as $rev) {
 			if ((string)$rev->attributes()->user == $wikiusername && strstr((string)$rev->attributes()->comment, $datasignature)) {
-				echo 'Already notified, skipping...' . "\n";
+				echo ' -> [CANCEL] Has already been notified' . "\n";
 				return;
 			}
 		}
@@ -155,7 +155,7 @@ function loadconfigoption($option, $force) {
 
 function login($wikiusername, $wikipassword) {
 	global $logincount;
-	echo 'Logging in...' . "\n";
+	echo '[INFO] Logging in...' . "\n";
 	//log in
 	$out = curl_get(WIKI_API_URL . '?format=xml&action=query&meta=tokens&type=login', true);
 	$login_xml = new SimpleXMLElement($out);
@@ -164,10 +164,10 @@ function login($wikiusername, $wikipassword) {
 	$out = curl_post(WIKI_API_URL . '',  'action=clientlogin&username=' . $wikiusername . '&password='.  $wikipassword . '&logintoken=' . rawurlencode($token) . '&loginreturnurl=' . rawurlencode(WIKI_API_URL) . '&format=xml');
 	$login_xml = new SimpleXMLElement($out);
 	if ((string)$login_xml->clientlogin->attributes()->status != 'PASS') {
-		echo 'Login failed!'. "\n";
+		echo '[ERROR] Login failed!'. "\n";
 		switch ((string)$login_xml->clientlogin->attributes()->message) {
 			case 'Throttled':
-				echo 'Too many recent logins. Please wait ' . (int)$login_xml->login->attributes()->wait . ' seconds.' . "\n"; break;
+				echo '[INFO] Too many recent logins. Please wait ' . (int)$login_xml->login->attributes()->wait . ' seconds.' . "\n"; break;
 			default:
 				print_r($login_xml);
 		}
@@ -182,7 +182,7 @@ function login($wikiusername, $wikipassword) {
 function checkshutoff() {
 	$shutoffpage = get_page_contents(SHUTOFF_PAGE); //check for automatic shutoff
 	if (!strstr($shutoffpage, '<div id="botenabled" style="font-weight:bold">true</div>')) {
-		echo ' >>> THIS BOT HAS BEEN DISABLED! <<< '; die;
+		echo '[TERMINATE] THIS BOT HAS BEEN DISABLED!' . "\n"; die;
 	}
 }
 
@@ -200,7 +200,7 @@ function getRecentChanges() {
 	return apiQuery(array(
 		'action' => 'query',
 		'list' => 'recentchanges',
-		'rcprop' => 'title|ids|sizes|flags|user|timestamp',
+		'rcprop' => 'title|ids|sizes|flags|user|timestamp|loginfo',
 		'rclimit' => 150
 	))->query->recentchanges;
 }
@@ -243,7 +243,6 @@ function checkEditCounts($rc_json, $limit, $period) {
 				if (!isset($already_notified[$user][$page]) || $already_notified[$user][$page] < time() - 2 * $period) {
 					echo '[NOTIF] [TOOMANYEDITS] ' . $user . ' made ' . $count . ' edits to ' . $page . ' in the last ' . $period . ' minutes' . "\n";
 					notify_user($user, 'excessive', array('count' => $count, 'page' => $page));
-				} else {
 					$already_notified[$user][$page] = time();
 				}
 			}
@@ -305,7 +304,7 @@ function checkUnsignedPosts($rc_json) {
 							'list' => 'usercontribs',
 							'ucuser' => $user,
 							'ucprop' => 'ids|title|size',
-							'uclimit' => 20
+							'uclimit' => 30
 						))->query->usercontribs;
 						$fixed = false;
 						foreach ($contribs as $contrib) {
@@ -318,6 +317,7 @@ function checkUnsignedPosts($rc_json) {
 							}
 						}
 						if (!$fixed) {
+							echo '[NOTIF] [UNSIGNED] Unsigned post in revision ' . $newid . ' of page ' . $title . ' by ' . $user . "\n";
 							notify_user($user, 'sign', array('revid' => $newid, 'page' => $title));
 						}
 					}
@@ -406,4 +406,76 @@ function checkUnsignedDiff($oldtext, $newtext) {
 	} else {
 		return false;
 	}
+}
+
+//check for missing categories
+function checkMissingCategories($rc_json) {
+	global $category_templates;
+	foreach ($rc_json as $edit) {
+		$type = (string)$edit->type;
+		$namespace = (int)$edit->ns;
+		$title = (string)$edit->title;
+		$oldrevid = (string)$edit->old_revid;
+		if ($type == 'log') {
+			$logtype = (string)$edit->logtype;
+		}
+		//it's either an uploaded file or a new non-user page
+		if (($type == 'new' && strpos($title, 'User') !== 0 && !stristr($title, 'talk:')) || ($type == 'log' && $logtype == 'upload' && $oldrevid == 0)) {
+			$timestamp = strtotime((string)$edit->timestamp);
+			
+			$user = (string)$edit->user;
+			//check for category
+			$has_category = checkForCategory($title, $category_templates);
+			if (!$has_category && $timestamp > time() - 180) {
+				//give the uploader three minutes to categorize
+				echo '[INFO] Sleeping ' . (180 - (time() - $timestamp)) . ' seconds to wait for ' . $user . ' to add category on ' . $title . "\n";
+				sleep(180 - (time() - $timestamp));
+			}
+			
+			//see if the file has been moved and follow it
+			$new_rc = apiQuery(array(
+				'action' => 'query',
+				'list' => 'recentchanges',
+				'rcprop' => 'title|loginfo',
+				'rclimit' => 150,
+				'rcdir' => 'newer',
+				'rcstart' => $timestamp
+			))->query->recentchanges;
+			foreach ($new_rc as $new_edit) {
+				$new_type = (string)$new_edit->type;
+				if ($new_type == 'log') {
+					$new_logtype = (string)$new_edit->logaction;
+					$old_title = (string)$new_edit->title;
+					if ($new_logtype == 'move' && $old_title == $title) {
+						$title = (string)$new_edit->logparams->target_title; //we moved the page, so follow the move
+					}
+				}
+			}
+			
+			$has_category = $has_category || checkForCategory($title, $category_templates);
+			if (!$has_category) {
+				echo '[NOTIF] [UNCAT] ' . $user . ' did not include category on page ' . $title . "\n";
+				if (strpos($title, 'File:') === 0 || strpos($title, 'Category:') === 0) {
+					$title = ':' . $title;
+				}
+				notify_user($user, 'uncat', array('page' => $title));
+			}
+		}
+	}
+}
+
+//check if a page has a category or is otherwise exempt from having one
+function checkForCategory($title, $category_templates) {
+	$contents = get_page_contents($title);
+	//if the page is a redirect, has a category, or has a category template, than it's good
+	if (stristr($contents, '#REDIRECT')
+		|| preg_match('%\[\[\W*Category:%i', $contents)
+		|| preg_match('%\{\{\W*(' . implode('|', $category_templates) . ')%i', $contents)) {
+		return true;
+	} else {
+		return false;
+	}
+}
+
+function checkSandbox($rc_json) {
 }
