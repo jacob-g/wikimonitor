@@ -17,7 +17,7 @@ $wikiusername = 'WikiMonitor'; //replace with the username you are using
 $wikipassword = 'password'; //replace with your password
 
 
-The file "conf/wikiinfo.php" sghould look like this:
+The file "conf/wikiinfo.php" should look like this:
 <?php
 define('CONFIG_LOCATION', 'User:WikiMonitor/Configuration');
 define('SHUTOFF_PAGE', 'User:WikiMonitor/Disable');
