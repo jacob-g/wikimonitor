@@ -197,12 +197,17 @@ function apiQuery($params, $method = 'get', $array = false) {
 }
 
 function getRecentChanges() {
-	return apiQuery(array(
-		'action' => 'query',
-		'list' => 'recentchanges',
-		'rcprop' => 'title|ids|sizes|flags|user|timestamp|loginfo',
-		'rclimit' => 150
-	))->query->recentchanges;
+	$rc_xml = false;
+	//keep if it returns blank, ping again
+	while (empty($rc_xml)) {
+		$rc_xml = apiQuery(array(
+			'action' => 'query',
+			'list' => 'recentchanges',
+			'rcprop' => 'title|ids|sizes|flags|user|timestamp|loginfo',
+			'rclimit' => 150
+		));
+	}
+	return $rc_xml->query->recentchanges;
 }
 
 //check for excessive edits
@@ -427,7 +432,7 @@ function checkMissingCategories($rc_json) {
 				$logtype = (string)$edit->logtype;
 			}
 			//it's either an uploaded file or a new non-user page
-			if (($type == 'new' && strpos($title, 'User') !== 0 && !stristr($title, 'talk:')) || ($type == 'log' && $logtype == 'upload' && $oldrevid == 0)) {
+			if (($type == 'new' && strpos($title, 'User') !== 0 && !stristr($title, 'talk:') && !stristr($title, 'mediawiki:')) || ($type == 'log' && $logtype == 'upload' && $oldrevid == 0)) {
 				$timestamp = strtotime((string)$edit->timestamp);
 				
 				$user = (string)$edit->user;
