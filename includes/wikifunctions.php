@@ -30,7 +30,7 @@ function notify_user($user, $type, $info) {
 		if (sizeof($nowikimatches[0]) < sizeof($nobotsmatches[0])) {
 			$nobots_override_list = explode("\n", file_get_contents('conf/nobotsoverride.txt')); //check if user is on nobots override list
 			if (!in_array($user, $nobots_override_list)) {
-				echo ' -> [CANCEL] ' . $user . '\'s talk page does not allow bots' . "\n";
+				echo ' -> ' ."\033[1;41m" . '[CANCEL]' . "\033[0m" . $user . '\'s talk page does not allow bots' . "\n";
 				return;
 			} else {
 				$overridenobots = true;
@@ -65,7 +65,7 @@ function notify_user($user, $type, $info) {
 	if (isset($historyxml->query->pages->page->revisions->rev)) {
 		foreach ($historyxml->query->pages->page->revisions->rev as $rev) {
 			if ((string)$rev->attributes()->user == $wikiusername && strstr((string)$rev->attributes()->comment, $datasignature)) {
-				echo ' -> [CANCEL] Has already been notified' . "\n";
+				echo ' -> ' ."\033[1;41m" . '[CANCEL]' . "\033[0m" . ' Has already been notified' . "\n";
 				return;
 			}
 		}
@@ -95,7 +95,7 @@ function notify_user($user, $type, $info) {
 
 function submit_edit($title, $contents, $summary, $minor = false) {
 	checkshutoff();
-	$tokenxml = new SimpleXMLElement(curl_post(WIKI_API_URL . '?action=query&prop=info|revisions&intoken=edit&titles=' . rawurlencode($title) . '&format=xml', '')); //get token
+	$tokenxml = new SimpleXMLElement(curl_post(WIKI_API_URL . '?action=query&prop=info|revisions&intoken=edit&titles=' . rawurlencode($title) . '&format=xml', '', true)); //get token
 	$edittoken = (string)$tokenxml->query->pages->page->attributes()->edittoken;
 	$return = curl_post(WIKI_API_URL . '', 'action=edit&title=' . rawurlencode($title) . '&summary=' . $summary . '&text=' . rawurlencode($contents) . '&format=xml&bot=true' . ($minor = true ? '&minor=true' : '') . '&token=' . rawurlencode($edittoken)); //submit the edit
 }
@@ -155,7 +155,7 @@ function loadconfigoption($option, $force) {
 
 function login($wikiusername, $wikipassword) {
 	global $logincount;
-	echo '[INFO] Logging in...' . "\n";
+	echo "\033[1;44m" . '[INFO]' . "\033[0m" . ' Logging in...' . "\n";
 	//log in
 	$out = curl_get(WIKI_API_URL . '?format=xml&action=query&meta=tokens&type=login', true);
 	$login_xml = new SimpleXMLElement($out);
@@ -167,7 +167,7 @@ function login($wikiusername, $wikipassword) {
 		echo '[ERROR] Login failed!'. "\n";
 		switch ((string)$login_xml->clientlogin->attributes()->message) {
 			case 'Throttled':
-				echo '[INFO] Too many recent logins. Please wait ' . (int)$login_xml->login->attributes()->wait . ' seconds.' . "\n"; break;
+				echo "\033[1;41m" . '[ERROR]' . "\033[0m" . ' Too many recent logins. Please wait ' . (int)$login_xml->login->attributes()->wait . ' seconds.' . "\n"; break;
 			default:
 				print_r($login_xml);
 		}
@@ -175,7 +175,7 @@ function login($wikiusername, $wikipassword) {
 	}
 	$logincount++;
 	if ($logincount == 1) {
-		echo '[INFO] Login success!' . "\n";
+		echo "\033[1;44m" . '[INFO]' . "\033[0m" . ' Login success!' . "\n";
 	}
 }
 
@@ -246,7 +246,7 @@ function checkEditCounts($rc_json, $limit, $period) {
 			foreach ($pages as $page => $count) {
 				//make sure we don't notify the same user multiple times (wait until two times the period have passed)
 				if (!isset($already_notified[$user][$page]) || $already_notified[$user][$page] < time() - 2 * $period) {
-					echo '[NOTIF] [TOOMANYEDITS] ' . $user . ' made ' . $count . ' edits to ' . $page . ' in the last ' . $period . ' minutes' . "\n";
+					echo "\033[1;41m" . '[NOTIF]' . "\033[0m" . ' [TOOMANYEDITS] ' . $user . ' made ' . $count . ' edits to ' . $page . ' in the last ' . $period . ' minutes' . "\n";
 					notify_user($user, 'excessive', array('count' => $count, 'page' => $page));
 					$already_notified[$user][$page] = time();
 				}
@@ -301,7 +301,7 @@ function checkUnsignedPosts($rc_json) {
 					$newtext = $edit_json->query->pages->$pageid->revisions[1]->{'*'};
 					if (checkUnsignedDiff($oldtext, $newtext)) {
 						if ($timestamp > time() - 180) {
-							echo '[INFO] Sleeping ' . (180 - (time() - $timestamp)) . ' seconds to wait for ' . $user . ' to sign post on ' . $title . "\n";
+							echo "\033[1;44m" . '[INFO]' . "\033[0m" . ' Sleeping ' . (180 - (time() - $timestamp)) . ' seconds to wait for ' . $user . ' to sign post on ' . $title . "\n";
 							sleep(180 - (time() - $timestamp));
 						}
 						$contribs = apiQuery(array(
@@ -322,7 +322,7 @@ function checkUnsignedPosts($rc_json) {
 							}
 						}
 						if (!$fixed) {
-							echo '[NOTIF] [UNSIGNED] Unsigned post in revision ' . $newid . ' of page ' . $title . ' by ' . $user . "\n";
+							echo "\033[1;41m" . '[NOTIF]' . "\033[0m" . ' [UNSIGNED] Unsigned post in revision ' . $newid . ' of page ' . $title . ' by ' . $user . "\n";
 							notify_user($user, 'sign', array('revid' => $newid, 'page' => $title));
 						}
 					}
@@ -335,6 +335,11 @@ function checkUnsignedPosts($rc_json) {
 
 //check a diff for whether not it has an unsigned post
 function checkUnsignedDiff($oldtext, $newtext) {
+	//if the revision doesn't add text, ignore it
+	if (strlen($oldtext) >= strlen($newtext)) {
+		return false;
+	}
+	
 	$lines = explode("\n", $oldtext);
 	$diff = getDiff($oldtext, $newtext);
 	$difflines = explode("\n", $diff);
@@ -424,12 +429,14 @@ function checkMissingCategories($rc_json) {
 	foreach ($rc_json as $edit) {
 		$type = (string)$edit->type;
 		$id = (int)$edit->rcid;
-		if (!in_array($id, $already_seen_edits)) {
-			$namespace = (int)$edit->ns;
+		if (!in_array($id, $already_seen_edits) && ($type == 'new' || $type == 'log') && !isset($edit->actionhidden)) {
 			$title = (string)$edit->title;
-			$oldrevid = (string)$edit->old_revid;
 			if ($type == 'log') {
 				$logtype = (string)$edit->logtype;
+				$oldrevid = (string)$edit->old_revid;
+				if ($logtype == '') {
+					print_r($edit); die;
+				}
 			}
 			//it's either an uploaded file or a new non-user page
 			if (($type == 'new' && strpos($title, 'User') !== 0 && !stristr($title, 'talk:') && !stristr($title, 'mediawiki:')) || ($type == 'log' && $logtype == 'upload' && $oldrevid == 0)) {
@@ -440,7 +447,7 @@ function checkMissingCategories($rc_json) {
 				$has_category = checkForCategory($title, $category_templates);
 				if (!$has_category && $timestamp > time() - 180) {
 					//give the uploader three minutes to categorize
-					echo '[INFO] Sleeping ' . (180 - (time() - $timestamp)) . ' seconds to wait for ' . $user . ' to add category on ' . $title . "\n";
+					echo "\033[1;44m" . '[INFO]' . "\033[0m" . ' Sleeping ' . (180 - (time() - $timestamp)) . ' seconds to wait for ' . $user . ' to add category on ' . $title . "\n";
 					sleep(180 - (time() - $timestamp));
 				}
 				
@@ -466,7 +473,7 @@ function checkMissingCategories($rc_json) {
 				
 				$has_category = $has_category || checkForCategory($title, $category_templates);
 				if (!$has_category) {
-					echo '[NOTIF] [UNCAT] ' . $user . ' did not include category on page ' . $title . "\n";
+					echo "\033[1;41m" . '[NOTIF]' . "\033[0m" . ' [UNCAT] ' . $user . ' did not include category on page ' . $title . "\n";
 					if (strpos($title, 'File:') === 0 || strpos($title, 'Category:') === 0) {
 						$title = ':' . $title;
 					}
@@ -492,29 +499,33 @@ function checkForCategory($title, $category_templates) {
 }
 
 function checkSandbox($rc_json, $SANDBOX_TIMEOUT, $DEFAULT_SANDBOX_TEXT) {
-	static $timetoclearsandbox, $already_seen_edits;
+	static $timetoclearsandbox = null, $already_seen_edits = [];
+	
 	$dateformat = 'd M Y H:i:s';
-	if (!isset($already_seen_edits)) {
-		$already_seen_edits = array();
-	}
+
 	foreach ($rc_json as $edit) {
-		$title = (string)$edit->title;
-		$id = (int)$edit->rcid;
-		if (!in_array($id, $already_seen_edits)) {
-			$timestamp = strtotime((string)$edit->timestamp);
-			if ($title == 'Scratch Wiki:Sandbox' && get_page_contents('Scratch Wiki:Sandbox') != $DEFAULT_SANDBOX_TEXT) {
-				//since the RC are in reverse order, we need to make sure we only update the sandbox clear time if it's later
-				$newtimetoclearsandbox = $timestamp + $SANDBOX_TIMEOUT * 60;
-				if ($newtimetoclearsandbox > $timetoclearsandbox) {
-					$timetoclearsandbox = $newtimetoclearsandbox;
-					echo '[INFO] Scheduling sandbox clearing at ' . gmdate($dateformat, $timetoclearsandbox) . ' (UTC)' . "\n";
+		$type = (string)$edit->type;
+		if ($type == 'edit') {
+			$title = (string)$edit->title;
+			$id = (int)$edit->rcid;
+			if (!in_array($id, $already_seen_edits)) {
+				$timestamp = strtotime((string)$edit->timestamp);
+				if ($title == 'Scratch Wiki:Sandbox' && get_page_contents('Scratch Wiki:Sandbox') != $DEFAULT_SANDBOX_TEXT) {
+					//since the RC are in reverse order, we need to make sure we only update the sandbox clear time if it's later
+					$newtimetoclearsandbox = $timestamp + $SANDBOX_TIMEOUT * 60;
+					if ($newtimetoclearsandbox > $timetoclearsandbox) {
+						$timetoclearsandbox = $newtimetoclearsandbox;
+						echo "\033[1;44m" . '[INFO]' . "\033[0m" . ' Scheduling sandbox clearing at ' . gmdate($dateformat, $timetoclearsandbox) . ' (UTC)' . "\n";
+					}
 				}
+				$already_seen_edits[] = $id;
 			}
-			$already_seen_edits[] = $id;
 		}
 	}
-	if (isset($timetoclearsandbox) && $timetoclearsandbox <= time() && get_page_contents('Scratch Wiki:Sandbox') != $DEFAULT_SANDBOX_TEXT) {
-		unset($timetoclearsandbox);
+	
+	if ($timetoclearsandbox != null && $timetoclearsandbox <= time() && trim(get_page_contents('Scratch Wiki:Sandbox')) != trim($DEFAULT_SANDBOX_TEXT)) {		
+		$timetoclearsandbox = null;
+		
 		echo '[EDIT] Clearing sandbox' . "\n";
 		submit_edit('Scratch Wiki:Sandbox', $DEFAULT_SANDBOX_TEXT, 'Automatically clearing sandbox', true);
 	}

@@ -17,7 +17,7 @@ $logincount = 0;
 $lastreloadedconfig = time();
 $force = false;
 if (!empty($argv) && in_array('config', $argv)) {
-	echo '[INFO] Reloading config' . "\n";
+	echo "\033[1;44m" . '[INFO]' . "\033[0m" . ' Reloading config' . "\n";
 	$force = true;
 }
 loadconfig($force);
@@ -29,7 +29,7 @@ while (true) {
 	}
 
 	for ($cyclecount = 1; $cyclecount <= 20; $cyclecount++) { //every 10 cycles, log back in
-		echo '[INFO] Starting cycle' . "\n";
+		echo "\033[1;44m" . '[INFO]' . "\033[0m" . ' Starting cycle' . "\n";
 		$rc_json = getRecentChanges();
 		
 		//check for excessive edits
