@@ -26,6 +26,7 @@ The file "conf/wikiinfo.php" should look like this:
 <?php
 define('CONFIG_LOCATION', 'User:WikiMonitor/Configuration');
 define('SHUTOFF_PAGE', 'User:WikiMonitor/Disable');
+define('TALK_INDICATOR', 'talk:');
 ```
 
 The following configuration files can be edited as necessary:

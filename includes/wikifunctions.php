@@ -280,7 +280,7 @@ function checkUnsignedPosts($rc_json) {
 		if ($type == 'edit' && !in_array($id, $already_seen_edits)) {
 			//we haven't seen this edit before, proceed
 			$title = (string)$edit->title;
-			if (stristr($title, 'talk:') && !isset($edit->minor)) {
+			if (stristr($title, TALK_INDICATOR) && !isset($edit->minor)) {
 				//it's a talk page edit and not marked as minor, see if it's a new message
 				$oldid = (int)$edit->old_revid;
 				$newid = (int)$edit->revid;
