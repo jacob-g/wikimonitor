@@ -95,8 +95,10 @@ function notify_user($user, $type, $info) {
 
 function submit_edit($title, $contents, $summary, $minor = false) {
 	checkshutoff();
-	$tokenxml = new SimpleXMLElement(curl_post(WIKI_API_URL . '?action=query&prop=info|revisions&intoken=edit&titles=' . rawurlencode($title) . '&format=xml', '', true)); //get token
-	$edittoken = (string)$tokenxml->query->pages->page->attributes()->edittoken;
+	$tokenJson = json_decode(curl_post(WIKI_API_URL . '?action=query&format=json&meta=tokens', ''));
+	
+	$edittoken = (string)$tokenJson->query->tokens->csrftoken;
+		
 	$return = curl_post(WIKI_API_URL . '', 'action=edit&title=' . rawurlencode($title) . '&summary=' . $summary . '&text=' . rawurlencode($contents) . '&format=xml&bot=true' . ($minor = true ? '&minor=true' : '') . '&token=' . rawurlencode($edittoken)); //submit the edit
 }
 
@@ -529,4 +531,8 @@ function checkSandbox($rc_json, $SANDBOX_TIMEOUT, $DEFAULT_SANDBOX_TEXT) {
 		echo '[EDIT] Clearing sandbox' . "\n";
 		submit_edit('Scratch Wiki:Sandbox', $DEFAULT_SANDBOX_TEXT, 'Automatically clearing sandbox', true);
 	}
+}
+
+function purgeCache(array $titles) {
+	curl_post(WIKI_API_URL . '?action=purge&titles=' . rawurlencode(implode('|', $titles)), '');
 }
