@@ -10,6 +10,12 @@ function get_page_contents($title) {
 	return $contents;
 }
 
+function get_edit_token() {
+	$tokenJson = json_decode(curl_post(WIKI_API_URL . '?action=query&format=json&meta=tokens', ''));
+	
+	return (string)$tokenJson->query->tokens->csrftoken;
+}
+
 function notify_user($user, $type, $info) {
 	//TODO: convert all API calls in here to JSON
 	global $wikiusername;
@@ -86,8 +92,7 @@ function notify_user($user, $type, $info) {
 		echo "\n";
 	} else {
 		checkshutoff();
-		$tokenxml = new SimpleXMLElement(curl_post(WIKI_API_URL . '?action=query&prop=info|revisions&intoken=edit&titles=User_talk:' . rawurlencode($user) . '&format=xml', '', true)); //get token
-		$edittoken = (string)$tokenxml->query->pages->page->attributes()->edittoken;
+		$edittoken = get_edit_token();
 
 		$return = curl_post(WIKI_API_URL . '', 'action=edit&title=User_talk:' . $user . '&section=new&sectiontitle=' . $subject . '&summary=' . rawurlencode($summary . ' (' . $datasignature . ')') . '&text=' . rawurlencode($message) . '&tags=wikimonitor-notification&format=xml&bot=true&token=' . rawurlencode($edittoken)); //submit the edit
 	}
@@ -95,9 +100,8 @@ function notify_user($user, $type, $info) {
 
 function submit_edit($title, $contents, $summary, $minor = false) {
 	checkshutoff();
-	$tokenJson = json_decode(curl_post(WIKI_API_URL . '?action=query&format=json&meta=tokens', ''));
 	
-	$edittoken = (string)$tokenJson->query->tokens->csrftoken;
+	$edittoken = get_edit_token();
 		
 	$return = curl_post(WIKI_API_URL . '', 'action=edit&title=' . rawurlencode($title) . '&summary=' . $summary . '&text=' . rawurlencode($contents) . '&format=xml&bot=true' . ($minor = true ? '&minor=true' : '') . '&token=' . rawurlencode($edittoken)); //submit the edit
 }
