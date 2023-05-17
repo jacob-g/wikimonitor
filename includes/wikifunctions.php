@@ -468,7 +468,7 @@ function checkMissingCategories($rc_json) {
 				))->query->recentchanges;
 				foreach ($new_rc as $new_edit) {
 					$new_type = (string)$new_edit->type;
-					if ($new_type == 'log') {
+					if ($new_type == 'log' && !property_exists($new_edit, 'actionhidden')) { // check for log entries (that weren't revdelled) to see if the page was moved so we can track the number of edits accurately
 						$new_logtype = (string)$new_edit->logaction;
 						$old_title = (string)$new_edit->title;
 						if ($new_logtype == 'move' && $old_title == $title) {
